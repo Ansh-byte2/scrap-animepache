@@ -44,12 +44,23 @@ class AnimePaheClient {
             }
         };
 
-        let response = await fetch(url, finalOptions);
+        let response;
+        try {
+            response = await fetch(url, finalOptions);
+        } catch (error) {
+            console.error('Fetch error:', error);
+            throw new Error(`Network error: ${error.message}`);
+        }
         
         if (response.status === 403) {
             // Try with a different user agent
             finalOptions.headers['user-agent'] = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
-            response = await fetch(url, finalOptions);
+            try {
+                response = await fetch(url, finalOptions);
+            } catch (error) {
+                console.error('Second fetch attempt failed:', error);
+                throw new Error(`Network error after retry: ${error.message}`);
+            }
         }
 
         if (!response.ok) {
