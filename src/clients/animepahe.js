@@ -44,19 +44,26 @@ class AnimePaheClient {
             }
         };
 
+        // Add deployment-friendly logging
+        console.log(`Making request to: ${url}`);
+        console.log(`Headers: ${JSON.stringify(finalOptions.headers, null, 2)}`);
+
         let response;
         try {
             response = await fetch(url, finalOptions);
+            console.log(`Response status: ${response.status}`);
         } catch (error) {
             console.error('Fetch error:', error);
             throw new Error(`Network error: ${error.message}`);
         }
         
         if (response.status === 403) {
+            console.log('Received 403, retrying with different user agent...');
             // Try with a different user agent
             finalOptions.headers['user-agent'] = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
             try {
                 response = await fetch(url, finalOptions);
+                console.log(`Retry response status: ${response.status}`);
             } catch (error) {
                 console.error('Second fetch attempt failed:', error);
                 throw new Error(`Network error after retry: ${error.message}`);
@@ -295,6 +302,19 @@ class AnimePaheClient {
             });
 
             const html = await response.text();
+            
+            // Try to find m3u8 URL directly in the HTML first (safer approach)
+            const m3u8Match = html.match(/https?:\/\/[^\s<>"']*\.m3u8[^\s<>"']*/);
+            if (m3u8Match && m3u8Match[0]) {
+                return {
+                    error: false,
+                    url: m3u8Match[0],
+                    isM3U8: true,
+                    originalUrl: url
+                };
+            }
+
+            // Try to find the obfuscated script
             const scriptMatch = /(eval)(\(f.*?)(\n<\/script>)/s.exec(html);
             
             if (!scriptMatch) {
@@ -305,22 +325,37 @@ class AnimePaheClient {
                 };
             }
 
-            const evalCode = scriptMatch[2].replace('eval', '');
-            const deobfuscated = eval(evalCode);
-            const m3u8Match = deobfuscated.match(/https.*?m3u8/);
+            // Safer approach: extract the obfuscated code without eval
+            const obfuscatedCode = scriptMatch[2];
             
-            if (m3u8Match && m3u8Match[0]) {
-                return {
-                    error: false,
-                    url: m3u8Match[0],
-                    isM3U8: true,
-                    originalUrl: url
-                };
+            // Try to extract m3u8 URL from the obfuscated code using regex patterns
+            // This is safer than eval and should work in serverless environments
+            const patterns = [
+                /https?:\/\/[^\s<>"']*\.m3u8[^\s<>"']*/g,
+                /['"`]([^'"`]*\.m3u8[^'"`]*)['"`]/g,
+                /url:\s*['"`]([^'"`]*\.m3u8[^'"`]*)['"`]/g
+            ];
+
+            for (const pattern of patterns) {
+                const matches = obfuscatedCode.match(pattern);
+                if (matches) {
+                    for (const match of matches) {
+                        const cleanUrl = match.replace(/['"`]/g, '');
+                        if (cleanUrl.includes('.m3u8')) {
+                            return {
+                                error: false,
+                                url: cleanUrl,
+                                isM3U8: true,
+                                originalUrl: url
+                            };
+                        }
+                    }
+                }
             }
 
             return {
                 error: true,
-                message: 'Could not extract m3u8 URL',
+                message: 'Could not extract m3u8 URL from obfuscated code',
                 originalUrl: url
             };
         } catch (error) {
