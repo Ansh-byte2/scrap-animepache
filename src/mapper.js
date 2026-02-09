@@ -78,7 +78,23 @@ class AnimeMapper {
             }
 
             // Get sources for this episode
-            return await this.animePahe.getEpisodeSources(episode.episodeId);
+            const sources = await this.animePahe.getEpisodeSources(episode.episodeId);
+            
+            // If no streams are available, return a fallback response
+            if (!sources.streams || (sources.streams.sub.length === 0 && sources.streams.dub.length === 0)) {
+                console.warn(`No streams found for episode ${episodeNum}, returning fallback response`);
+                return {
+                    headers: {
+                        Referer: 'https://kwik.cx/'
+                    },
+                    streams: {
+                        sub: [],
+                        dub: []
+                    }
+                };
+            }
+            
+            return sources;
         } catch (error) {
             console.error('Error getting episode sources:', error);
             throw error;
